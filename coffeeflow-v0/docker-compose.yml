@@ -3,6 +3,8 @@ services:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: root
+      TZ: Asia/Shanghai
+    command: ["--default-time-zone=+08:00"]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
       interval: 5s
@@ -17,6 +19,7 @@ services:
   backend:
     build: ./backend
     environment:
+      TZ: Asia/Shanghai
       DB_URL: jdbc:mysql://mysql:3306/coffeeflow?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       DB_USER: coffeeflow
       DB_PASSWORD: coffeeflow
