@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: coffeeflow-backend
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/coffeeflow?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${DB_USER:coffeeflow}
+    password: ${DB_PASSWORD:coffeeflow}
+server:
+  port: ${SERVER_PORT:8080}

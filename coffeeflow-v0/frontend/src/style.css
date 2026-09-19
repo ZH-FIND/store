@@ -1,0 +1,37 @@
+:root { font-family: Inter, "PingFang SC", sans-serif; color: #291b14; background: #f5efe7; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top right, #d8c2a6, transparent 40%), #f5efe7; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+main { max-width: 1180px; margin: auto; padding: 40px 24px; }
+header { margin-bottom: 28px; }
+h1 { margin: 8px 0; font-size: clamp(36px, 6vw, 58px); line-height: 1.05; }
+h2 { margin: 5px 0; }
+.eyebrow { color: #a04b25; font-weight: 800; letter-spacing: .18em; }
+.panel { border: 1px solid #d7c6b7; border-radius: 20px; padding: 20px; background: rgba(255,255,255,.82); box-shadow: 0 18px 50px rgba(78,48,29,.08); }
+.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.summary article { display: grid; gap: 8px; }
+.summary b { font-size: 38px; }
+.filters { margin: 20px 0; display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 12px; }
+input, select { border: 1px solid #cdb9a8; border-radius: 12px; padding: 12px; background: white; }
+.orders { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.order { cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 10px; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.order p, .order small { margin: 0; }
+.order::after { content: "点击查看详情  →"; grid-column: 1 / -1; color: #a04b25; font-size: 13px; font-weight: 700; text-align: right; }
+.order:hover { transform: translateY(-2px); border-color: #a04b25; box-shadow: 0 22px 50px rgba(78,48,29,.14); }
+.badge { padding: 7px 12px; height: fit-content; border-radius: 999px; background: #efe2d2; font-weight: 700; }
+.primary, .ghost, .close { border: 0; border-radius: 12px; padding: 11px 15px; }
+.primary { color: white; background: #6f3f28; grid-column: 1 / -1; }
+.ghost, .close { background: #eadbc9; }
+.error { color: #a82424; }
+.drawer-layer { position: fixed; inset: 0; background: rgba(38,25,18,.35); display: flex; justify-content: flex-end; padding: 16px; }
+.drawer { width: min(500px, 100%); overflow: auto; }
+.drawer .close { float: right; }
+.drawer img { width: 100%; max-height: 280px; object-fit: cover; border-radius: 16px; background: #eadbc9; }
+.drawer dl { display: grid; grid-template-columns: 90px 1fr; gap: 10px; }
+.drawer dt { color: #806b5d; }
+.drawer dd { margin: 0; font-weight: 700; }
+@media (max-width: 720px) {
+  .summary, .orders { grid-template-columns: 1fr; }
+  .filters { grid-template-columns: 1fr; }
+}

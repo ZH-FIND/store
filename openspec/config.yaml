@@ -1,0 +1,26 @@
+schema: spec-driven
+
+context: |
+  本项目使用 tdspeckit（基于 OpenSpec 的定制版本），采用 SDD（Spec-Driven Development）流程进行 AI 辅助开发。
+  CLI 命令：openspec
+  别名：tdspec
+  项目目录：openspec/
+
+# 项目背景（可选）
+# 此信息会展示给 AI 助手，用于生成更贴合项目的产出物。
+# 请填写你的技术栈、编码规范、领域知识等。
+# 示例：
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# 按产出物的规则（可选）
+# 为特定产出物添加自定义规则。
+# 示例：
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
