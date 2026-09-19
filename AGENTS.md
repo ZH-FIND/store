@@ -36,9 +36,10 @@ coffeeflow-v0/                 # 仓库根
 │   │   └── src/               # App.vue / main.ts / style.css
 │   ├── docker-compose.yml     # mysql + backend + frontend
 │   └── run.sh                 # 一键启动并等待全部健康
-├── sql/                       # MySQL 初始化脚本，被 compose 挂载为 initdb
+├── sql/                       # MySQL 初始化脚本，被 compose 挂载为 initdb（按文件名顺序执行）
 │   ├── 00-create-database.sql # 建库 + 建用户授权
-│   └── 01-orders-and-seed.sql # 建表 + 12 条种子订单
+│   ├── 01-orders-and-seed.sql # V0 建表 + 12 条种子订单
+│   └── 02-v1-online-ordering.sql # V1 增量迁移：products/stores/store_product/order_items + 改造 orders
 ├── docs/                      # 人工维护的顶层规范（管方向）
 │   ├── 00-origin/             # 原始需求与附件（只读，勿改）
 │   └── 02-requirements/       # PRD
@@ -77,8 +78,33 @@ cd coffeeflow-v0/frontend && npm ci && npm run dev
 # 后端（H2 内存库，不依赖 MySQL）
 cd coffeeflow-v0/backend && mvn verify
 
-# 前端
-cd coffeeflow-v0/frontend && npm ci && npm run check && npm run lint && npm test && npm run build
+# 本机未安装 Maven 时用容器跑（依赖缓存在 coffeeflow_m2 卷，首次约 2 分钟）
+docker run --rm -v "c:\Users\hwx376695\Desktop\STORE\coffeeflow-v0\coffeeflow-v0\backend:/workspace" -v "coffeeflow_m2:/root/.m2" -w /workspace maven:3.9.9-eclipse-temurin-17 mvn -B verify
+
+# 前端（注意：本机禁止运行 .ps1，需用 npm.cmd）
+cd coffeeflow-v0/frontend && npm.cmd ci && npm.cmd run check && npm.cmd run lint && npm.cmd test && npm.cmd run build
+```
+
+## API 一览
+
+V0（契约冻结，不得改动字段名与结构）：
+
+```
+GET   /api/health
+GET   /api/v1/orders?status=
+GET   /api/v1/orders/{orderId}
+PATCH /api/v1/orders/{orderId}/status
+```
+
+V1（顾客下单与门店商品管理）：
+
+```
+GET   /api/v1/stores                                              # 门店列表
+GET   /api/v1/stores/{storeId}/products                           # 该门店商品（含门店级 available）
+PATCH /api/v1/stores/{storeId}/products/{productCode}/availability # 门店停售 / 恢复，body {available}
+POST  /api/v1/orders                                              # 顾客下单 → 201，返回 orderId/pickupCode/totalAmount/status
+GET   /api/v1/orders/pickup/{pickupCode}                          # 按取餐码查当日订单
+POST  /api/v1/orders/{orderId}/cancel                             # body {pickupCode, phoneLast4}
 ```
 
 ## Verification Gate（验证门禁）
@@ -90,8 +116,14 @@ cd coffeeflow-v0/frontend && npm ci && npm run check && npm run lint && npm test
   - [ ] 涉及接口或数据库改动：全栈 `docker compose up --build --wait` 能起来，且相关接口实际调通（附请求/响应证据）
 - **V0 回归红线**（任何改动都不得破坏）：
   - `GET /api/v1/orders?status=`、`GET /api/v1/orders/{orderId}`、`PATCH /api/v1/orders/{orderId}/status` 的响应**字段名与结构零变化**
-  - `CoffeeFlowApiTests`、`JdbcBaselineTests` 必须全绿（锁死 total=12、READY=3、IN_PROGRESS=3、overdue=4、CF-1003 明细、CF-1012 的商品码）
+  - `CoffeeFlowApiTests`（7）、`JdbcBaselineTests`（3）、`OnlineOrderingApiTests`（18）必须全绿；前两组锁死 total=12、READY=3、IN_PROGRESS=3、overdue=4、CF-1003 明细、CF-1012 的商品码
   - 门店订单看板的列表、筛选、详情抽屉、推进状态均正常
+- **V1 业务红线**（改动不得回退）：
+  - `unit_price` / `total_amount` 一律取商品统一价，**规格（小/中/大杯）不加价**
+  - 取餐码 4 位数字、**当日唯一、每日从 1001 重置**；查询只按当日匹配非空取餐码
+  - 顾客取消仅限「待制作」，且必须同时匹配取餐码与手机号后四位；取消只改状态不删单
+  - 停售按**门店 × 商品**隔离，且服务端强制拦截下单（不依赖前端）
+  - 商品明细只能落在 `order_items`；**不得在 `orders` 上恢复商品字段**（`quantity` 是明细条目数，不是杯数）
 
 ## Code Conventions（代码约定）
 
@@ -105,6 +137,17 @@ cd coffeeflow-v0/frontend && npm ci && npm run check && npm run lint && npm test
 - 前端为单文件组件（`.vue`），交互元素带 `data-testid`，便于测试定位。
 - 命名约定：Java 类 `PascalCase`、方法与字段 `camelCase`；前端变量与函数 `camelCase`、组件 `PascalCase`；数据库列与表 `snake_case`。
 - 订单的金额、单价等业务快照在写入时固定，不随商品表后续变更而重算。
+
+## Environment Conventions（环境约定，属踩坑沉淀，勿回退）
+
+以下三条是部署阶段实际踩到并已修复的问题，改动相关文件时 MUST 保留，否则 V0 在 Docker 环境下会再次不可用：
+
+- **时区必须全链路一致为 `Asia/Shanghai`**：`docker-compose.yml` 中 mysql 与 backend 均设 `TZ: Asia/Shanghai`，mysql 追加 `command: ["--default-time-zone=+08:00"]`，JDBC URL 保持 `serverTimezone=Asia/Shanghai`，时间字段统一用无时区的 `LocalDateTime`。
+  三者不一致时 `resultSet.getTimestamp().toLocalDateTime()` 会隐式换算，API 返回的时间比库中早 8 小时，前端进而把所有未终结订单误判为“超时”（超时订单由 4 变 9）。**验收信号：DB 时间必须等于 API 时间，且超时订单为 4。**
+- **字符集必须为 `utf8mb4`**：`sql/` 下每个含中文的初始化脚本首行 MUST 有 `SET NAMES utf8mb4;`。
+  官方 mysql 镜像的 initdb 客户端默认字符集是 latin1（MySQL 的 latin1 实为 CP1252），缺少该语句会把 UTF-8 种子文件按 CP1252 解读后入库，导致所有中文显示成 `å›½è´¸åº—` 之类的乱码，且**数据库里存的就是坏数据**（`HEX(store_name)` 可见）。
+- **前端 nginx 必须同时监听 IPv4 与 IPv6**：`frontend/nginx.conf` 的 `listen 80;` 之后 MUST 保留 `listen [::]:80;`。
+  容器内 `localhost` 解析到 `::1`，只监听 IPv4 会使健康检查持续失败、`docker compose up --wait` 永不返回（`./run.sh` 挂住），而应用本身却能被访问到 —— 现象容易被误判为“已经部署成功”。
 
 ## Generated Artifacts（生成物策略）
 

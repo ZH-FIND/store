@@ -1,18 +1,19 @@
 package com.coffeeflow.backend.controller;
 
+import com.coffeeflow.backend.dto.CancelOrderRequest;
+import com.coffeeflow.backend.dto.CreateOrderRequest;
+import com.coffeeflow.backend.dto.CreateOrderResponse;
 import com.coffeeflow.backend.dto.OrderDetailResponse;
 import com.coffeeflow.backend.dto.OrderListResponse;
+import com.coffeeflow.backend.dto.PickupOrderDetailResponse;
 import com.coffeeflow.backend.dto.UpdateOrderStatusRequest;
 import com.coffeeflow.backend.model.OrderStatus;
 import com.coffeeflow.backend.service.OrderService;
-import java.util.Collections;
-import java.util.Map;
-import java.util.NoSuchElementException;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -44,15 +45,21 @@ public class OrderController {
         return orderService.updateOrderStatus(orderId, request.getStatus());
     }
 
-    @ExceptionHandler(NoSuchElementException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Map<String, String> notFound(NoSuchElementException exception) {
-        return Collections.singletonMap("message", exception.getMessage());
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public CreateOrderResponse createOrder(@RequestBody CreateOrderRequest request) {
+        return orderService.createOrder(request);
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Map<String, String> badRequest(IllegalArgumentException exception) {
-        return Collections.singletonMap("message", exception.getMessage());
+    /** 取餐码只在当日范围内有效，历史订单的取餐码为空，查不到。 */
+    @GetMapping("/pickup/{pickupCode}")
+    public PickupOrderDetailResponse getOrderByPickupCode(@PathVariable String pickupCode) {
+        return orderService.getOrderByPickupCode(pickupCode);
+    }
+
+    @PostMapping("/{orderId}/cancel")
+    public PickupOrderDetailResponse cancelOrder(@PathVariable String orderId,
+            @RequestBody CancelOrderRequest request) {
+        return orderService.cancelOrder(orderId, request);
     }
 }

@@ -1,0 +1,2 @@
+# Maven 构建产物（源文件是唯一事实来源，构建物不入库）
+coffeeflow-v0/backend/target/
