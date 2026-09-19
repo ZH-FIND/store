@@ -24,7 +24,7 @@ V1 要让**顾客自己下单**，并让**门店能控制卖什么**。
 | F4 | 提交订单，返回订单金额与取餐码 | 顾客 |
 | F5 | 用取餐码查询订单详情与最新状态 | 顾客 |
 | F6 | 门店开始制作前取消订单 | 顾客 |
-| F7 | 停售 / 恢复商品 | 门店 |
+| F7 | 门店停售 / 恢复商品 | 门店 |
 | F8 | V0 门店订单看板继续正常使用 | 门店 |
 
 ### 2.2 本版不做（Out of Scope）
@@ -40,11 +40,11 @@ V1 要让**顾客自己下单**，并让**门店能控制卖什么**。
 | # | 决策 | 选择 | 影响 |
 |---|------|------|------|
 | D1 | 数据模型 | **规范化拆表**：`orders` 只留订单头，商品明细进 `order_items` | V0 看板改读聚合，接口契约不变 |
-| D2 | 取餐码 | **独立短码**，全局唯一递增（4 位数字，从 1001 起） | 不复用订单号；不重置、不需冲突重试 |
+| D2 | 取餐码 | **独立短码**，4 位数字、**每日重置**（当日从 1001 起，仅当日唯一） | 不复用订单号；跨天允许重码，查单须按日期限定 |
 | D3 | 顾客身份 | **手机号后四位**，下单时填写 | 取消订单校验：取餐码 + 手机号后四位 |
 | D4 | 价格模型 | **商品统一价，规格（小/中/大杯）不加价** | `size` 仅作展示，不进金额计算 |
 | D5 | 顾客端界面 | **单页 Tab 切换**（门店看板 / 顾客点单），不引入 vue-router | 复用现有 SPA 与样式 |
-| D6 | 停售粒度 | **全局商品级**（`product.available`）⚠️ 简化项 | 停售影响所有门店，与用户故事五措辞有出入，见 §8 |
+| D6 | 停售粒度 | **门店 × 商品**（`store_product.available`） | 停售只影响该门店；商品列表须按门店返回可售状态 |
 
 ## 4. 数据模型
 
@@ -64,12 +64,13 @@ orders(product_code, drink_name, size, quantity, items)
 ### 4.2 目标模型
 
 ```
-   stores ──┐
-            ├──► orders ──► order_items ──► products
-   products ┘        ▲                          ▲
-   （只读种子）      │                          └── 价格 / 可售状态
-              pickup_code, total_amount,
-              phone_last4, status
+   stores ──────────────┐
+      │                 ├──► orders ──► order_items ──► products
+      └── store_product ┘        ▲                          ▲
+          （门店×商品可售）       │                          └── 价格（自由定价）
+                                 pickup_code（当日唯一）,
+                                 pickup_date, total_amount,
+                                 phone_last4, status
 ```
 
 **`products`（新增）**
@@ -78,8 +79,7 @@ orders(product_code, drink_name, size, quantity, items)
 |------|------|
 | product_code | 主键，`CF-BEV-001` ~ `CF-BEV-014`（与现有 14 张商品图 1:1） |
 | name | 商品名，如"燕麦拿铁" |
-| price | 统一价（D4：规格不加价） |
-| available | 可售状态（D6：全局级） |
+| price | 统一价（D4：规格不加价；价目由团队自由设定） |
 
 **`stores`（新增，只读）**
 
@@ -88,6 +88,16 @@ orders(product_code, drink_name, size, quantity, items)
 | store_id | 主键 |
 | store_name | 国贸店 / 望京店 / 中关村店 / 三里屯店 / 朝阳大悦城店（沿用 V0 现有门店） |
 
+**`store_product`（新增，门店 × 商品可售关系）**
+
+| 字段 | 说明 |
+|------|------|
+| store_id | 外键 → stores.store_id |
+| product_code | 外键 → products.product_code |
+| available | 该门店该商品是否可售（D6：**门店级**停售） |
+
+> 主键 `(store_id, product_code)`。种子数据：5 个门店 × 14 个商品，默认全部 `available = true`。
+
 **`orders`（改造，只留订单头）**
 
 | 字段 | 变化 |
@@ -95,8 +105,9 @@ orders(product_code, drink_name, size, quantity, items)
 | id | 不变，`CF-xxxx` 订单号 |
 | store_name | 保留 |
 | customer_name | 保留 |
-| phone_last4 | **新增**（D3） |
-| pickup_code | **新增**（D2） |
+| phone_last4 | **新增**（D3），历史单置空 |
+| pickup_code | **新增**（D2），4 位数字，当日唯一，历史单置空 |
+| pickup_date | **新增**，取餐码所属日期；与 `pickup_code` 组成唯一索引；历史单置空 |
 | total_amount | **新增**，下单时按明细汇总的**快照** |
 | status | 不变，5 态 |
 | created_at / estimated_ready_at / note | 保留 |
@@ -133,7 +144,7 @@ V0 的 3 个接口响应字段**必须一个字都不变**。拆表后按以下�
 - 历史单**没有每商品杯数**，迁移时统一按 **每个商品 1 杯** 拆（等价于 V0 的"条目数"语义）。
 - 明细的 `product_code` 按 `drink_name` 反查 `products`；`size` 取原订单的 `size`。
 - `unit_price` 取 `products.price`；`total_amount` 按明细汇总。
-- 历史单的 `pickup_code` / `phone_last4` 用占位值（历史单不参与顾客侧查询）。
+- 历史单的 `pickup_code` / `pickup_date` / `phone_last4` **置空（不写占位值）**：按取餐码查询只返回 `pickup_code` 非空的订单，历史单因此天然查不到（决议 3：需要清理）。
 
 ## 5. 状态机与业务规则
 
@@ -152,9 +163,11 @@ V0 的 3 个接口响应字段**必须一个字都不变**。拆表后按以下�
 | R2 取消窗口 | **只有 `NEW` 可被顾客取消**；`IN_PROGRESS` 及之后拒绝 |
 | R3 取消校验 | 必须同时匹配 `pickup_code` 与 `phone_last4`，否则拒绝 |
 | R4 取消结果 | 状态置 `CANCELLED`，**不删单**（看板仍可见） |
-| R5 停售拦截 | `available = false` 的商品**不允许下单**，下单接口整体拒绝并指明商品 |
+| R5 停售拦截 | 该门店 `store_product.available = false` 的商品**不允许下单**，下单接口整体拒绝并指明商品 |
 | R6 金额快照 | `total_amount` 与 `unit_price` 在**下单时刻**固定，后续改价不影响已有订单 |
 | R7 状态推进 | 沿用 V0：店员在看板上按 `NEW→IN_PROGRESS→READY→COMPLETED` 单向推进 |
+| R8 取餐码生成 | 4 位数字，**当日唯一**：取当日已用最大码 + 1（当日首单为 1001）；跨天自动从 1001 重新开始，由 `(pickup_code, pickup_date)` 唯一索引兜底 |
+| R9 取餐码查询范围 | 只按**当日**的 `pickup_code` 查询；历史订单无取餐码，永不可被顾客侧查到 |
 
 ## 6. API 契约
 
@@ -173,12 +186,12 @@ PATCH /api/v1/orders/{orderId}/status
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/v1/products` | 商品列表（名称/图片码/价格/可售状态） |
 | GET | `/api/v1/stores` | 门店列表 |
+| GET | `/api/v1/stores/{storeId}/products` | **该门店**的商品列表（名称/图片码/价格/该门店可售状态） |
 | POST | `/api/v1/orders` | 顾客下单，返回 `orderId` + `pickupCode` + `totalAmount` |
-| GET | `/api/v1/orders/pickup/{pickupCode}` | 按取餐码查订单详情与状态 |
+| GET | `/api/v1/orders/pickup/{pickupCode}` | 按取餐码查**当日**订单详情与状态 |
 | POST | `/api/v1/orders/{orderId}/cancel` | 顾客取消，请求体含 `phoneLast4` |
-| PATCH | `/api/v1/products/{productCode}/availability` | 停售 / 恢复商品 |
+| PATCH | `/api/v1/stores/{storeId}/products/{productCode}/availability` | **门店**停售 / 恢复商品 |
 
 **下单请求（示意）**
 
@@ -210,8 +223,8 @@ PATCH /api/v1/orders/{orderId}/status
 ### US1 顾客浏览商品
 作为顾客，我希望查看当前商品、价格和可售状态。
 
-- [ ] 打开顾客点单页，能看到 14 个商品，每个显示名称、图片、价格
-- [ ] 被停售的商品可见但**标记为不可售、不可选**
+- [ ] 选定门店后，能看到该门店的 14 个商品，每个显示名称、图片、价格
+- [ ] 该门店被停售的商品可见但**标记为不可售、不可选**
 
 ### US2 顾客提交订单
 作为顾客，我希望选择取餐门店、选一个或多个商品及数量并提交。
@@ -236,9 +249,10 @@ PATCH /api/v1/orders/{orderId}/status
 ### US5 门店管理商品状态
 作为门店店员，我希望临时停售或恢复商品。
 
-- [ ] 能把某商品置为停售，顾客侧立即变为不可选
-- [ ] 能恢复为可售，顾客侧立即可选
-- [ ] 停售的商品**无法被下单**（即使前端被绕过）
+- [ ] 能把**本门店**某商品置为停售，该门店顾客侧立即变为不可选
+- [ ] 能恢复为可售，该门店顾客侧立即可选
+- [ ] **停售只影响本门店**：其他门店同款商品仍可正常下单
+- [ ] 停售的商品在本门店**无法被下单**（即使前端被绕过）
 
 ### US6（回归）V0 看板继续可用
 - [ ] 12 条历史订单仍全部可见，筛选/详情/推进状态均正常
@@ -252,22 +266,26 @@ PATCH /api/v1/orders/{orderId}/status
 | 部署 | 沿用 `docker compose up --build`，三条容器（mysql / backend / frontend）不变 |
 | 数据库变更 | 新增 DDL 落在 `sql/` 下，与现有 `00` / `01` 脚本同一套初始化流程 |
 | 测试 | 后端 `mvn verify`、前端 `npm run check && npm run lint && npm test && npm run build` 必须通过 |
-| 并发 | 取餐码全局唯一由数据库自增保证；本版不处理下单并发竞争 |
+| 并发 | 取餐码「当日唯一」由生成规则 + `(pickup_code, pickup_date)` 唯一索引保证；本版不处理下单并发竞争 |
 
-## 9. 待确认项（需业务方拍板）
+## 9. 已确认决议（业务方已拍板）
 
-1. **停售粒度**：当前按全局商品级实现（D6），而用户故事五措辞是"门店店员停售"。若验收要求门店级隔离，需新增 `store_product` 关系表 + 种子数据，属额外交付。
-2. **取餐码是否长期复用**：当前全局递增不复用。真实业务通常每日重置。
-3. **历史订单的取餐码/手机号占位值**：历史单不参与顾客侧查询，是否需要清理可见性。
-4. **14 个商品的定价**：PRD 未指定价格档位，需要业务方给出价目表（本版可自拟占位价）。
+| # | 问题 | 决议 | 落地位置 |
+|---|------|------|----------|
+| 1 | 停售粒度 | **按门店**（门店 × 商品），非全局 | D6、`store_product` 表、R5、US5 |
+| 2 | 取餐码是否复用 | **每日重置**，当日唯一，跨天允许重码 | D2、R8、R9、§6.2 |
+| 3 | 历史订单占位值 | **需要清理**：历史单 `pickup_code` / `pickup_date` / `phone_last4` 置空，顾客侧永不可查 | §4.4 |
+| 4 | 商品定价 | **自由定价**，由团队自行设定价目 | `products.price` |
+
+> 本版已知不做：并发下单保护、取餐码跨天查询、门店维护界面。
 
 ## 10. 2 小时实施顺序建议
 
 ```
-0:00-0:15  sql/02-*.sql：建 products / stores / order_items，改造 orders，迁移 12 条种子
-0:15-0:45  后端：商品/门店查询、下单、按取餐码查单、取消、停售（含 R1-R7 规则）
-0:45-1:00  后端：V0 三个接口改读聚合 + 回归跑通既有测试
-1:00-1:30  前端：Tab 切换、商品列表、购物车、下单结果、取餐码查单、停售开关
-1:30-1:50  端到端联调（docker compose 全栈）
-1:50-2:00  验收自查（对照 §7 清单）+ 提交推送
+0:00-0:20  sql/02-*.sql：建 products / stores / store_product / order_items，改造 orders，迁移 12 条种子
+0:20-0:50  后端：门店商品查询、下单（含当日取餐码生成）、按取餐码查单、取消、门店停售（含 R1-R9 规则）
+0:50-1:05  后端：V0 三个接口改读聚合 + 回归跑通既有测试
+1:05-1:35  前端：Tab 切换、门店选择、商品列表、购物车、下单结果、取餐码查单、门店停售开关
+1:35-1:52  端到端联调（docker compose 全栈）
+1:52-2:00  验收自查（对照 §7 清单）+ 提交推送
 ```
